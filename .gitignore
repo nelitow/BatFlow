@@ -2,8 +2,7 @@
 .build/
 build/
 cache/
-BatFlow.app/
-BatFlow
-test_run
+/BatFlow.app/
+/BatFlow
 *.swiftmodule
 *.swiftdoc

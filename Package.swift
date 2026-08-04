@@ -16,10 +16,7 @@ let package = Package(
         .executableTarget(
             name: "BatFlow",
             linkerSettings: [
-                .linkedFramework("IOKit"),
-                .linkedFramework("AppKit"),
-                .linkedFramework("SwiftUI"),
-                .linkedFramework("Charts")
+                .linkedFramework("IOKit")
             ]
         )
     ]

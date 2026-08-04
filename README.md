@@ -96,12 +96,12 @@ open BatFlow.app
 
 ## 🚀 CI/CD
 
-Every merge to `main` automatically:
+Every push to `main` automatically:
 1. Compiles `BatFlow.app` on `macos-latest`
 2. Ad-hoc signs and packages `BatFlow-macOS.zip`
-3. Publishes it as the **latest** GitHub Release — always a fresh download at the link above
+3. Auto-bumps the patch version and publishes a new numbered GitHub Release (e.g. `v1.0.1`) — always a fresh download at the link above
 
-Tag a version (`git tag v1.x.x && git push origin v1.x.x`) to cut a numbered stable release.
+Push a specific tag (`git tag v1.x.x && git push origin v1.x.x`) to cut a manually chosen version instead.
 
 ---
 

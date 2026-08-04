@@ -18,15 +18,29 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Determine Version
         id: version
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            TAG="${GITHUB_REF#refs/tags/}"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+            if [[ -z "$LATEST_TAG" ]]; then
+              TAG="v0.1.0"
+            else
+              VERSION="${LATEST_TAG#v}"
+              MAJOR="${VERSION%%.*}"
+              REST="${VERSION#*.}"
+              MINOR="${REST%%.*}"
+              PATCH="${REST#*.}"
+              TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+            fi
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build BatFlow.app
         run: |
@@ -47,29 +61,19 @@ jobs:
           ditto -c -k --keepParent BatFlow.app BatFlow-macOS.zip
           echo "Built: $(du -sh BatFlow-macOS.zip | cut -f1)"
 
-      - name: Delete existing 'latest' release (if re-releasing)
-        if: steps.version.outputs.tag == 'latest'
+      - name: Tag Release
+        if: "!startsWith(github.ref, 'refs/tags/')"
         run: |
-          gh release delete latest --cleanup-tag --yes || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG="${{ steps.version.outputs.tag }}"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Create GitHub Release
         run: |
           TAG="${{ steps.version.outputs.tag }}"
-          if [[ "$TAG" == "latest" ]]; then
-            TITLE="BatFlow — Latest Build"
-            NOTES="Automatically built from the latest commit on \`main\`."
-            gh release create "$TAG" BatFlow-macOS.zip \
-              --title "$TITLE" \
-              --notes "$NOTES" \
-              --prerelease \
-              --target main
-          else
-            gh release create "$TAG" BatFlow-macOS.zip \
-              --title "BatFlow $TAG" \
-              --generate-notes \
-              --target main
-          fi
+          gh release create "$TAG" BatFlow-macOS.zip \
+            --title "BatFlow $TAG" \
+            --generate-notes \
+            --target main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
