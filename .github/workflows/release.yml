@@ -1,0 +1,56 @@
+name: Release BatFlow
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '5.9'
+
+      - name: Build Native macOS App Bundle
+        run: |
+          mkdir -p build/cache
+          mkdir -p BatFlow.app/Contents/MacOS BatFlow.app/Contents/Resources
+          
+          swiftc -module-cache-path build/cache \
+            -framework IOKit -framework AppKit -framework SwiftUI -framework Charts \
+            -parse-as-library \
+            -o BatFlow.app/Contents/MacOS/BatFlow \
+            Sources/BatFlow/*.swift
+          
+          cp Info.plist BatFlow.app/Contents/Info.plist
+          codesign -s - --force --deep BatFlow.app
+          
+          zip -r BatFlow-macOS.zip BatFlow.app
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatFlow-macOS
+          path: BatFlow-macOS.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: BatFlow-macOS.zip
+          name: BatFlow ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

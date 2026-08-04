@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BatFlow — Real-Time Power Telemetry & Battery Flow for macOS</title>
+    <meta name="description" content="Open-source macOS menu bar application for real-time charge flow visualization, Apple Silicon SMC battery temperature sensing, and USB-C output port wattage monitoring. Modern replacement for BatFi.">
+    <meta name="keywords" content="macOS battery monitor, BatFi alternative, macOS 15, macOS 27, charge flow graph, Apple Silicon SMC temperature, USB-C port wattage, Swift, SwiftUI">
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:title" content="BatFlow — Power Telemetry & Battery Flow for macOS">
+    <meta property="og:description" content="Real-time charge flow diagram, Apple Silicon SMC battery temperature, and USB-C output port wattage inspector for macOS.">
+    <meta property="og:image" content="hero.jpg">
+    <meta property="og:type" content="website">
+
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(255, 255, 255, 0.04);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --accent-cyan: #00f2fe;
+            --accent-purple: #9d4edd;
+            --accent-green: #00e676;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Glassmorphism Navigation */
+        header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 18px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(11, 15, 25, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--card-border);
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 24px;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 160px 20px 80px;
+            max-width: 1100px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 999px;
+            background: rgba(0, 242, 254, 0.1);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.15;
+            margin-bottom: 24px;
+            background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 760px;
+            margin: 0 auto 40px;
+        }
+
+        .cta-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 60px;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 32px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent-cyan), #0072ff);
+            color: #000;
+            font-weight: 700;
+            text-decoration: none;
+            box-shadow: 0 8px 32px rgba(0, 242, 254, 0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 242, 254, 0.5);
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 28px;
+            border-radius: 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .hero-banner {
+            width: 100%;
+            max-width: 1000px;
+            border-radius: 20px;
+            border: 1px solid var(--card-border);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+        }
+
+        /* Features Section */
+        .features {
+            max-width: 1100px;
+            margin: 100px auto;
+            padding: 0 20px;
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: 2.2rem;
+            margin-bottom: 16px;
+        }
+
+        .section-subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 60px;
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 32px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(0, 242, 254, 0.4);
+        }
+
+        .card-icon {
+            font-size: 2.2rem;
+            margin-bottom: 16px;
+        }
+
+        .card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 12px;
+        }
+
+        .card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Note Banner */
+        .note-banner {
+            max-width: 1100px;
+            margin: 0 auto 100px;
+            padding: 24px 32px;
+            background: rgba(0, 230, 118, 0.05);
+            border: 1px solid rgba(0, 230, 118, 0.3);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .note-banner p {
+            color: #cbd5e1;
+            font-size: 0.95rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            border-top: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            ⚡️ BatFlow
+        </div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#architecture">Architecture</a>
+            <a href="https://github.com/your-username/BatFlow" target="_blank">GitHub</a>
+            <a href="https://github.com/your-username/BatFlow/releases" class="btn-primary" style="padding: 8px 18px; font-size: 0.85rem;">Download</a>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="badge">Next-Gen macOS Menu Bar App</div>
+        <h1>Real-Time Battery & Power Flow Telemetry</h1>
+        <p>BatFlow brings deep hardware power distribution visualizers, SMC battery thermal sensing, and USB-C output port wattage monitoring to your Mac.</p>
+
+        <div class="cta-buttons">
+            <a href="https://github.com/your-username/BatFlow/releases" class="btn-primary">
+                Download for macOS 
+            </a>
+            <a href="https://github.com/your-username/BatFlow" target="_blank" class="btn-secondary">
+                View Source on GitHub
+            </a>
+        </div>
+
+        <img src="hero.jpg" alt="BatFlow Interface Banner" class="hero-banner" />
+    </section>
+
+    <div class="note-banner">
+        <div style="font-size: 2rem;">💡</div>
+        <div>
+            <strong style="color: var(--accent-green);">Designed for macOS 15 & macOS 27+</strong>
+            <p>Since recent macOS releases include built-in battery charging limits (e.g. 80% limit), BatFlow intentionally focuses on real-time hardware telemetry, live power flow visualizers, per-port USB-C wattage inspection, and thermal monitoring without interfering with native macOS system power management routines.</p>
+        </div>
+    </div>
+
+    <section class="features" id="features">
+        <h2 class="section-title">Engineered for Observability</h2>
+        <p class="section-subtitle">Comprehensive power metrics right in your system menu bar</p>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-icon">⚡️</div>
+                <h3>Real-Time Charge Flow Graph</h3>
+                <p>Interactive animated node diagram showing live power distribution between AC Charger (65W), Mac CPU/System Usage, Battery Charge Rate, and USB-C Output Ports.</p>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🌡</div>
+                <h3>Apple SMC Battery Temperature</h3>
+                <p>Direct interrogation of Apple Silicon SMC thermal keys (<code>TB0T</code>, <code>TB1T</code>, <code>TB2T</code>) for precise battery temperature in °C and °F.</p>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🔌</div>
+                <h3>USB-C Output Ports Inspector</h3>
+                <p>Monitor real-time wattage (W), voltage (V), and current (A) delivered to connected external devices like your iPhone, iPad, or peripherals.</p>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">📊</div>
+                <h3>Historical Telemetry Charts</h3>
+                <p>Rolling performance charts tracking system power draw, battery charge/discharge rate, and temperature over time built with Swift Charts.</p>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">⚙️</div>
+                <h3>Customizable Menu Bar Extra</h3>
+                <p>Tailor status bar item formats (<code>⚡️ 33% • 31.0°C • 65W</code>, compact, or percentage only) and configurable polling intervals.</p>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🍃</div>
+                <h3>Native & Lightweight</h3>
+                <p>Built 100% natively in Swift & SwiftUI with zero third-party dependencies. Ultra-low CPU usage and memory footprint.</p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>BatFlow is open-source under the <a href="https://github.com/your-username/BatFlow/blob/main/LICENSE">MIT License</a>. Created with ❤️ for macOS.</p>
+    </footer>
+
+</body>
+</html>
