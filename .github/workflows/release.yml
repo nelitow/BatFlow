@@ -7,50 +7,73 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
-    name: Build & Publish Release
+    name: Build macOS App & Publish Release
     runs-on: macos-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: '5.9'
+      - name: Determine Version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Build Native macOS App Bundle
+      - name: Build BatFlow.app
         run: |
           mkdir -p build/cache
-          mkdir -p BatFlow.app/Contents/MacOS BatFlow.app/Contents/Resources
-          
+          mkdir -p BatFlow.app/Contents/MacOS
+          mkdir -p BatFlow.app/Contents/Resources
+
           swiftc -module-cache-path build/cache \
             -framework IOKit -framework AppKit -framework SwiftUI -framework Charts \
             -parse-as-library \
+            -O \
             -o BatFlow.app/Contents/MacOS/BatFlow \
             Sources/BatFlow/*.swift
-          
-          cp Info.plist BatFlow.app/Contents/Info.plist
-          codesign -s - --force --deep BatFlow.app
-          
-          zip -r BatFlow-macOS.zip BatFlow.app
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: BatFlow-macOS
-          path: BatFlow-macOS.zip
+          cp Info.plist BatFlow.app/Contents/Info.plist
+
+      - name: Ad-hoc Code Sign
+        run: codesign -s - --force --deep BatFlow.app
+
+      - name: Package into ZIP
+        run: |
+          ditto -c -k --keepParent BatFlow.app BatFlow-macOS.zip
+          echo "Built: $(du -sh BatFlow-macOS.zip | cut -f1)"
+
+      - name: Delete existing 'latest' release (if re-releasing)
+        if: steps.version.outputs.tag == 'latest'
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: BatFlow-macOS.zip
-          name: BatFlow ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if [[ "$TAG" == "latest" ]]; then
+            TITLE="BatFlow — Latest Build"
+            NOTES="Automatically built from the latest commit on \`main\`."
+            gh release create "$TAG" BatFlow-macOS.zip \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --prerelease \
+              --target main
+          else
+            gh release create "$TAG" BatFlow-macOS.zip \
+              --title "BatFlow $TAG" \
+              --generate-notes \
+              --target main
+          fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
