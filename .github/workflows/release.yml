@@ -34,12 +34,8 @@ jobs:
           mkdir -p BatFlow.app/Contents/MacOS
           mkdir -p BatFlow.app/Contents/Resources
 
-          swiftc -module-cache-path build/cache \
-            -framework IOKit -framework AppKit -framework SwiftUI -framework Charts \
-            -parse-as-library \
-            -O \
-            -o BatFlow.app/Contents/MacOS/BatFlow \
-            Sources/BatFlow/*.swift
+          swift build -c release
+          cp .build/release/BatFlow BatFlow.app/Contents/MacOS/BatFlow
 
           cp Info.plist BatFlow.app/Contents/Info.plist
 
