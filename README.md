@@ -7,7 +7,7 @@
 [![macOS 14.0+](https://img.shields.io/badge/macOS-14.0%2B-blue.svg?style=flat-square&logo=apple)](https://www.apple.com/macos)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg?style=flat-square&logo=swift)](https://swift.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/your-username/BatFlow?style=flat-square)](https://github.com/your-username/BatFlow/releases)
+[![Release](https://img.shields.io/github/v/release/nelitow/BatFlow?style=flat-square)](https://github.com/nelitow/BatFlow/releases)
 
 <p align="center">
   <img src="assets/hero.jpg" alt="BatFlow Hero Banner" width="840" />
@@ -59,7 +59,7 @@ BatFlow uses native macOS hardware frameworks:
 ## 📦 Installation & Quick Start
 
 ### Download Pre-built Release
-Download the latest `BatFlow-macOS.zip` from the [GitHub Releases](https://github.com/your-username/BatFlow/releases) page, unzip, and launch `BatFlow.app`.
+Download the latest `BatFlow-macOS.zip` from the [GitHub Releases](https://github.com/nelitow/BatFlow/releases) page, unzip, and launch `BatFlow.app`.
 
 ### Build from Source
 
@@ -67,7 +67,7 @@ Requirements: macOS 14.0+, Xcode 15+ / Command Line Tools.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/BatFlow.git
+git clone https://github.com/nelitow/BatFlow.git
 cd BatFlow
 
 # Build executable directly with swiftc
