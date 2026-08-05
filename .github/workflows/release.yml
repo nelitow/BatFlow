@@ -41,17 +41,71 @@ jobs:
             fi
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "short_version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify full app sources
+        run: |
+          required=(
+            Sources/BatFlow/BatFlowApp.swift
+            Sources/BatFlow/ChargeFlowDiagram.swift
+            Sources/BatFlow/PopoverView.swift
+            Sources/BatFlow/PortInspectorView.swift
+            Sources/BatFlow/PowerTelemetry.swift
+            Sources/BatFlow/TelemetryChartsView.swift
+            Sources/BatFlow/TelemetryViewModel.swift
+          )
+          for f in "${required[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error::Missing required source file: $f"
+              exit 1
+            fi
+          done
+          # Guard against the old stub-only tree shipping again
+          if [[ -f Sources/BatFlow/ContentView.swift ]] || [[ -f Sources/BatFlow/PowerTelemetryService.swift ]]; then
+            echo "::error::Stub sources detected (ContentView/PowerTelemetryService). Refuse to release."
+            exit 1
+          fi
+          echo "Full app sources present ($(ls Sources/BatFlow/*.swift | wc -l | tr -d ' ') Swift files)."
 
       - name: Build BatFlow.app
         run: |
-          mkdir -p build/cache
-          mkdir -p BatFlow.app/Contents/MacOS
-          mkdir -p BatFlow.app/Contents/Resources
+          mkdir -p BatFlow.app/Contents/MacOS BatFlow.app/Contents/Resources
 
           swift build -c release
-          cp .build/release/BatFlow BatFlow.app/Contents/MacOS/BatFlow
 
+          BINARY=".build/release/BatFlow"
+          if [[ ! -x "$BINARY" ]]; then
+            BINARY=$(find .build -type f -path '*/release/BatFlow' -perm -111 | head -n1)
+          fi
+          if [[ -z "$BINARY" || ! -x "$BINARY" ]]; then
+            echo "::error::Release binary not found under .build/"
+            exit 1
+          fi
+
+          cp "$BINARY" BatFlow.app/Contents/MacOS/BatFlow
+
+          # Stamp version from the release tag
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.short_version }}" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.short_version }}" Info.plist
           cp Info.plist BatFlow.app/Contents/Info.plist
+
+      - name: Verify release binary
+        run: |
+          BIN=BatFlow.app/Contents/MacOS/BatFlow
+          SIZE=$(stat -f%z "$BIN")
+          echo "Binary size: $SIZE bytes"
+          # Stub was ~100–130KB; full app is ~600KB+
+          if [[ "$SIZE" -lt 300000 ]]; then
+            echo "::error::Binary too small ($SIZE bytes) — looks like the stub build."
+            exit 1
+          fi
+          for symbol in ChargeFlowDiagram PopoverView PortInspectorView TelemetryChartsView; do
+            if ! strings "$BIN" | grep -q "$symbol"; then
+              echo "::error::Missing expected symbol in binary: $symbol"
+              exit 1
+            fi
+          done
+          echo "Release binary checks passed."
 
       - name: Ad-hoc Code Sign
         run: codesign -s - --force --deep BatFlow.app
@@ -74,6 +128,6 @@ jobs:
           gh release create "$TAG" BatFlow-macOS.zip \
             --title "BatFlow $TAG" \
             --generate-notes \
-            --target main
+            --target "${{ github.sha }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
