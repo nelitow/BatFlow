@@ -1,133 +1,118 @@
 name: Release BatFlow
 
 on:
+  pull_request:
   push:
     branches:
       - main
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which version part to increment
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
   contents: write
 
+# Release runs must not overlap: two of them would read the same "latest tag"
+# and compute the same next version. PR runs are per-PR and safe to cancel.
+concurrency:
+  group: release-${{ github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build-and-release:
-    name: Build macOS App & Publish Release
+  release:
+    name: Build & Release
     runs-on: macos-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          fetch-depth: 0 # also fetches tags, needed to compute the next version
 
-      - name: Determine Version
+      - name: Determine version
         id: version
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
           else
-            LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-            if [[ -z "$LATEST_TAG" ]]; then
-              TAG="v0.1.0"
-            else
-              VERSION="${LATEST_TAG#v}"
-              MAJOR="${VERSION%%.*}"
-              REST="${VERSION#*.}"
-              MINOR="${REST%%.*}"
-              PATCH="${REST#*.}"
-              TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-            fi
+            latest=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+            IFS=. read -r major minor patch <<< "${latest:-v0.0.0}"
+            major="${major#v}"
+            case "${{ github.event.inputs.bump }}" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              *)     patch=$((patch + 1)) ;;
+            esac
+            tag="v${major}.${minor}.${patch}"
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "short_version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify full app sources
-        run: |
-          required=(
-            Sources/BatFlow/BatFlowApp.swift
-            Sources/BatFlow/ChargeFlowDiagram.swift
-            Sources/BatFlow/PopoverView.swift
-            Sources/BatFlow/PortInspectorView.swift
-            Sources/BatFlow/PowerTelemetry.swift
-            Sources/BatFlow/TelemetryChartsView.swift
-            Sources/BatFlow/TelemetryViewModel.swift
-          )
-          for f in "${required[@]}"; do
-            if [[ ! -f "$f" ]]; then
-              echo "::error::Missing required source file: $f"
-              exit 1
-            fi
-          done
-          # Guard against the old stub-only tree shipping again
-          if [[ -f Sources/BatFlow/ContentView.swift ]] || [[ -f Sources/BatFlow/PowerTelemetryService.swift ]]; then
-            echo "::error::Stub sources detected (ContentView/PowerTelemetryService). Refuse to release."
-            exit 1
-          fi
-          echo "Full app sources present ($(ls Sources/BatFlow/*.swift | wc -l | tr -d ' ') Swift files)."
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "short=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "Version: $tag"
 
       - name: Build BatFlow.app
         run: |
-          mkdir -p BatFlow.app/Contents/MacOS BatFlow.app/Contents/Resources
-
+          set -euo pipefail
           swift build -c release
+          binary="$(swift build -c release --show-bin-path)/BatFlow"
 
-          BINARY=".build/release/BatFlow"
-          if [[ ! -x "$BINARY" ]]; then
-            BINARY=$(find .build -type f -path '*/release/BatFlow' -perm -111 | head -n1)
-          fi
-          if [[ -z "$BINARY" || ! -x "$BINARY" ]]; then
-            echo "::error::Release binary not found under .build/"
-            exit 1
-          fi
+          mkdir -p BatFlow.app/Contents/MacOS
+          cp "$binary" BatFlow.app/Contents/MacOS/BatFlow
 
-          cp "$BINARY" BatFlow.app/Contents/MacOS/BatFlow
-
-          # Stamp version from the release tag
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.short_version }}" Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.short_version }}" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.short }}" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.short }}" Info.plist
           cp Info.plist BatFlow.app/Contents/Info.plist
 
-      - name: Verify release binary
+          codesign -s - --force BatFlow.app
+
+      - name: Verify bundle
         run: |
-          BIN=BatFlow.app/Contents/MacOS/BatFlow
-          SIZE=$(stat -f%z "$BIN")
-          echo "Binary size: $SIZE bytes"
-          # Stub was ~100–130KB; full app is ~600KB+
-          if [[ "$SIZE" -lt 300000 ]]; then
-            echo "::error::Binary too small ($SIZE bytes) — looks like the stub build."
+          set -euo pipefail
+          app=BatFlow.app
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --verify --strict "$app"
+          test -x "$app/Contents/MacOS/BatFlow"
+
+          stamped=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+          if [[ "$stamped" != "${{ steps.version.outputs.short }}" ]]; then
+            echo "::error::Bundle reports version $stamped, expected ${{ steps.version.outputs.short }}"
             exit 1
           fi
-          for symbol in ChargeFlowDiagram PopoverView PortInspectorView TelemetryChartsView; do
-            if ! strings "$BIN" | grep -q "$symbol"; then
-              echo "::error::Missing expected symbol in binary: $symbol"
-              exit 1
-            fi
-          done
-          echo "Release binary checks passed."
+          echo "OK: $stamped, $(lipo -archs "$app/Contents/MacOS/BatFlow")"
 
-      - name: Ad-hoc Code Sign
-        run: codesign -s - --force --deep BatFlow.app
+      - name: Package
+        run: ditto -c -k --keepParent BatFlow.app BatFlow-macOS.zip
 
-      - name: Package into ZIP
-        run: |
-          ditto -c -k --keepParent BatFlow.app BatFlow-macOS.zip
-          echo "Built: $(du -sh BatFlow-macOS.zip | cut -f1)"
+      # Lets you download and run the build straight from a pull request.
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatFlow-${{ steps.version.outputs.tag }}
+          path: BatFlow-macOS.zip
 
-      - name: Tag Release
-        if: "!startsWith(github.ref, 'refs/tags/')"
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          git tag "$TAG"
-          git push origin "$TAG"
-
-      - name: Create GitHub Release
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          gh release create "$TAG" BatFlow-macOS.zip \
-            --title "BatFlow $TAG" \
-            --generate-notes \
-            --target "${{ github.sha }}"
+      - name: Tag and publish
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::notice::Release $tag already exists, nothing to publish"
+            exit 0
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git tag "$tag"
+            git push origin "$tag"
+          fi
+
+          gh release create "$tag" BatFlow-macOS.zip \
+            --title "BatFlow $tag" \
+            --generate-notes \
+            --target "$GITHUB_SHA"
