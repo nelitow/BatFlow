@@ -46,7 +46,9 @@ public struct ChargeFlowDiagram: View {
                         Spacer()
                         PowerNodeCard(
                             title: snapshot.hasChargerConnected ? snapshot.chargerName : "Internal Battery",
-                            subtitle: snapshot.hasChargerConnected ? "AC Wall Power" : "Discharging",
+                            subtitle: snapshot.hasChargerConnected
+                                ? String(format: "Drawing of %.0f W available", snapshot.chargerWattsNegotiated)
+                                : "Discharging",
                             value: String(format: "%.1f W", snapshot.hasChargerConnected ? snapshot.chargerWattsActual : abs(snapshot.batteryWatts)),
                             icon: snapshot.hasChargerConnected ? "powerplug.fill" : "battery.100bolt",
                             accentColor: snapshot.hasChargerConnected ? .green : .orange

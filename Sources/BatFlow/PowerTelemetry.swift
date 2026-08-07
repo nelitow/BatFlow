@@ -20,7 +20,13 @@ public struct PowerSnapshot: Sendable {
     public let isFullyCharged: Bool
     public let hasChargerConnected: Bool
     public let chargerName: String
+    /// Rated output of the adapter, e.g. 140 W for a 140 W brick. Constant.
     public let chargerWattsNominal: Double
+    /// Ceiling of the negotiated USB-PD contract (contract voltage × contract current),
+    /// e.g. 28 V × 4.99 A = 139.7 W. This is a *limit*, not a measurement: it stays flat
+    /// while the charger is attached. Never display it as consumption.
+    public let chargerWattsNegotiated: Double
+    /// Power the adapter is actually delivering right now (SMC `PDTR`).
     public let chargerWattsActual: Double
     public let batteryWatts: Double
     public let systemWatts: Double
@@ -59,6 +65,20 @@ private struct SMCKeyInfoData {
 }
 
 private struct SMCParamStruct {
+    /// Method selectors understood by AppleSMC's `IOConnectCallStructMethod` handler.
+    enum Selector: UInt8 {
+        case readKey = 5
+        case getKeyInfo = 9
+    }
+
+    /// Values AppleSMC reports back in `result`. A non-zero `result` accompanies a
+    /// `kIOReturnSuccess` ioctl, so the ioctl return code alone says nothing about
+    /// whether the key was actually read.
+    enum Result: UInt8 {
+        case success = 0
+        case keyNotFound = 132
+    }
+
     var key: UInt32 = 0
     var vers = SMCVersion()
     var pLimitData = SMPLimitData()
@@ -74,11 +94,23 @@ private struct SMCParamStruct {
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
 }
 
+/// FourCharCode for the SMC `flt ` (32-bit IEEE float) data type.
+private let smcFloatType: UInt32 = 0x666C_7420 // "flt "
+
 public final class PowerTelemetryService: @unchecked Sendable {
     public static let shared = PowerTelemetryService()
     
     private init() {}
     
+    // MARK: - SMC access
+
+    /// AppleSMC connection, opened lazily and kept for the life of the process.
+    /// `fetchSnapshot` reads several keys per poll; reopening the driver for each one
+    /// costs two Mach round trips per key for no benefit.
+    private var smcConnection: io_connect_t = 0
+    private var smcOpenFailed = false
+    private let smcLock = NSLock()
+
     private func fourCharCode(_ string: String) -> UInt32 {
         var result: UInt32 = 0
         for char in string.utf8 {
@@ -86,46 +118,78 @@ public final class PowerTelemetryService: @unchecked Sendable {
         }
         return result
     }
-    
-    // Read float key from AppleSMC
-    private func readSMCFloatKey(_ keyStr: String) -> Double? {
-        let matching = IOServiceMatching("AppleSMC")
-        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
-        guard service != 0 else { return nil }
+
+    /// Caller must hold `smcLock`.
+    private func smcConnect() -> io_connect_t? {
+        if smcConnection != 0 { return smcConnection }
+        if smcOpenFailed { return nil }
+
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
+        guard service != 0 else {
+            smcOpenFailed = true
+            return nil
+        }
         defer { IOObjectRelease(service) }
-        
+
         var conn: io_connect_t = 0
-        guard IOServiceOpen(service, mach_task_self_, 0, &conn) == kIOReturnSuccess else { return nil }
-        defer { IOServiceClose(conn) }
-        
+        guard IOServiceOpen(service, mach_task_self_, 0, &conn) == kIOReturnSuccess else {
+            smcOpenFailed = true
+            return nil
+        }
+        smcConnection = conn
+        return conn
+    }
+
+    /// Caller must hold `smcLock`. Returns the populated output struct, or `nil` when
+    /// either the ioctl or the SMC itself reported failure.
+    private func smcCall(_ input: inout SMCParamStruct, on conn: io_connect_t) -> SMCParamStruct? {
+        var output = SMCParamStruct()
         let inputSize = MemoryLayout<SMCParamStruct>.stride
         var outputSize = MemoryLayout<SMCParamStruct>.stride
-        
-        var inputStructure = SMCParamStruct()
-        var outputStructure = SMCParamStruct()
-        inputStructure.key = fourCharCode(keyStr)
-        inputStructure.data8 = 9 // kSMCGetKeyInfo
-        
-        guard IOConnectCallStructMethod(conn, 2, &inputStructure, inputSize, &outputStructure, &outputSize) == kIOReturnSuccess,
-              outputStructure.keyInfo.dataSize == 4 else {
+
+        guard IOConnectCallStructMethod(conn, 2, &input, inputSize, &output, &outputSize) == kIOReturnSuccess,
+              output.result == SMCParamStruct.Result.success.rawValue else {
+            // A missing key returns kIOReturnSuccess with result == 132; without this
+            // check the untouched output buffer would be decoded as a valid 0.0 reading.
             return nil
         }
-        
-        inputStructure.keyInfo.dataSize = 4
-        inputStructure.data8 = 5 // kSMCReadKey
-        
-        guard IOConnectCallStructMethod(conn, 2, &inputStructure, inputSize, &outputStructure, &outputSize) == kIOReturnSuccess else {
+        return output
+    }
+
+    /// Reads a 32-bit float SMC key. Returns `nil` if the key is absent on this Mac,
+    /// is not a `flt ` key, or the read fails.
+    private func readSMCFloatKey(_ keyStr: String) -> Double? {
+        smcLock.lock()
+        defer { smcLock.unlock() }
+
+        guard let conn = smcConnect() else { return nil }
+        let key = fourCharCode(keyStr)
+
+        var infoInput = SMCParamStruct()
+        infoInput.key = key
+        infoInput.data8 = SMCParamStruct.Selector.getKeyInfo.rawValue
+        guard let info = smcCall(&infoInput, on: conn),
+              info.keyInfo.dataType == smcFloatType,
+              info.keyInfo.dataSize == 4 else {
             return nil
         }
-        
-        let b = outputStructure.bytes
-        let rawBytes = [b.0, b.1, b.2, b.3]
-        let floatVal = rawBytes.withUnsafeBytes { $0.load(as: Float.self) }
-        
-        guard !floatVal.isNaN && !floatVal.isInfinite && floatVal > -50 && floatVal < 200 else {
-            return nil
-        }
-        return Double(floatVal)
+
+        var readInput = SMCParamStruct()
+        readInput.key = key
+        readInput.keyInfo.dataSize = 4
+        readInput.data8 = SMCParamStruct.Selector.readKey.rawValue
+        guard let output = smcCall(&readInput, on: conn) else { return nil }
+
+        // The SMC returns `flt ` little-endian. Assemble the bit pattern explicitly:
+        // binding a [UInt8] buffer and calling `load(as: Float.self)` on it is undefined
+        // behaviour (the memory is bound to UInt8, not Float) and the optimiser miscompiles
+        // it to a constant 0.0 in release builds.
+        let b = output.bytes
+        let bits = UInt32(b.0) | UInt32(b.1) << 8 | UInt32(b.2) << 16 | UInt32(b.3) << 24
+        let value = Float(bitPattern: bits)
+
+        guard value.isFinite else { return nil }
+        return Double(value)
     }
     
     public func fetchSnapshot() -> PowerSnapshot {
@@ -135,7 +199,7 @@ public final class PowerTelemetryService: @unchecked Sendable {
         var hasChargerConnected: Bool = false
         var chargerName: String = "Disconnected"
         var chargerWattsNominal: Double = 0.0
-        var chargerWattsActual: Double = 0.0
+        var chargerWattsNegotiated: Double = 0.0
         var batteryWatts: Double = 0.0
         var rawVoltage: Double = 0.0 // mV
         var amperage: Double = 0.0 // mA
@@ -211,16 +275,20 @@ public final class PowerTelemetryService: @unchecked Sendable {
                     timeToFullMin = tFull.intValue
                 }
                 
-                // Charger Details
+                // Charger Details.
+                // `AdapterVoltage` and `Current` describe the negotiated USB-PD contract
+                // (e.g. 28 V @ 4.99 A on a 140 W brick), i.e. the ceiling the adapter has
+                // agreed to supply. They do not move with load, so they must never be
+                // reported as draw — the measured delivery comes from SMC `PDTR` below.
                 if let adapter = dict["AdapterDetails"] as? [String: Any] {
                     chargerName = (adapter["Name"] as? String) ?? "USB-C Power Adapter"
                     chargerWattsNominal = (adapter["Watts"] as? NSNumber)?.doubleValue ?? 0.0
-                    let aVoltage = (adapter["AdapterVoltage"] as? NSNumber)?.doubleValue ?? 0.0 // mV
-                    let aCurrent = (adapter["Current"] as? NSNumber)?.doubleValue ?? 0.0 // mA
-                    if aVoltage > 0 && aCurrent > 0 {
-                        chargerWattsActual = (aVoltage * aCurrent) / 1_000_000.0
+                    let contractVoltage = (adapter["AdapterVoltage"] as? NSNumber)?.doubleValue ?? 0.0 // mV
+                    let contractCurrent = (adapter["Current"] as? NSNumber)?.doubleValue ?? 0.0 // mA
+                    if contractVoltage > 0 && contractCurrent > 0 {
+                        chargerWattsNegotiated = (contractVoltage * contractCurrent) / 1_000_000.0
                     } else {
-                        chargerWattsActual = chargerWattsNominal
+                        chargerWattsNegotiated = chargerWattsNominal
                     }
                 }
                 
@@ -267,19 +335,37 @@ public final class PowerTelemetryService: @unchecked Sendable {
             batteryTempC = validTemps.reduce(0, +) / Double(validTemps.count)
         }
         
+        // Measured power rails, following BatFi's model: `PDTR` is what the adapter is
+        // actually delivering and `PSTR` is what the system itself is drawing. Both track
+        // load in real time; the USB-PD contract figures above do not.
+        func measuredWatts(_ key: String) -> Double? {
+            guard let w = readSMCFloatKey(key), w >= -400.0, w <= 400.0 else { return nil }
+            return w
+        }
+        let measuredAdapterWatts = hasChargerConnected ? measuredWatts("PDTR") : nil
+        let measuredSystemWatts = measuredWatts("PSTR")
+
         // System Watts (Mac usage / CPU / board)
-        var systemWatts: Double = 0.0
-        if let smcSysPower = readSMCFloatKey("PSTR"), smcSysPower > 0.1 && smcSysPower < 300.0 {
-            systemWatts = smcSysPower
+        let systemWatts: Double
+        if let measured = measuredSystemWatts {
+            systemWatts = max(0.0, measured)
+        } else if hasChargerConnected, let adapter = measuredAdapterWatts {
+            // Whatever the adapter supplies that is not going into the pack or out a port.
+            systemWatts = max(0.0, adapter - max(0.0, batteryWatts) - totalOutputWatts)
         } else {
-            // Fallback physics model:
-            if hasChargerConnected {
-                let batChargeWatts = max(0.0, batteryWatts)
-                systemWatts = max(3.5, chargerWattsActual - batChargeWatts - totalOutputWatts)
-            } else {
-                let batDischargeWatts = max(0.0, -batteryWatts)
-                systemWatts = max(3.5, batDischargeWatts - totalOutputWatts)
-            }
+            // Running on the pack: it is the only source feeding the board and the ports.
+            systemWatts = max(0.0, -batteryWatts - totalOutputWatts)
+        }
+
+        // What the charger is really supplying right now.
+        let chargerWattsActual: Double
+        if !hasChargerConnected {
+            chargerWattsActual = 0.0
+        } else if let measured = measuredAdapterWatts {
+            chargerWattsActual = measured
+        } else {
+            // No PDTR on this Mac: reconstruct from the loads the adapter is feeding.
+            chargerWattsActual = max(0.0, systemWatts + max(0.0, batteryWatts) + totalOutputWatts)
         }
         
         return PowerSnapshot(
@@ -291,6 +377,7 @@ public final class PowerTelemetryService: @unchecked Sendable {
             hasChargerConnected: hasChargerConnected,
             chargerName: chargerName,
             chargerWattsNominal: chargerWattsNominal,
+            chargerWattsNegotiated: chargerWattsNegotiated,
             chargerWattsActual: chargerWattsActual,
             batteryWatts: batteryWatts,
             systemWatts: systemWatts,

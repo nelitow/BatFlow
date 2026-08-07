@@ -77,7 +77,9 @@ public final class TelemetryViewModel: ObservableObject {
     public var menuBarTitle: String {
         let pct = "\(currentSnapshot.batteryPercent)%"
         let temp = formattedTemp(currentSnapshot.batteryTempC)
-        let watts = String(format: "%.0fW", currentSnapshot.hasChargerConnected ? currentSnapshot.chargerWattsActual : abs(currentSnapshot.batteryWatts))
+        // System draw, not adapter capability: the negotiated USB-PD contract sits at the
+        // brick's rating whenever it is plugged in and would read "140W" permanently.
+        let watts = String(format: "%.0fW", currentSnapshot.systemWatts)
         let bolt = currentSnapshot.isCharging ? "⚡️ " : "🔋 "
         
         switch statusBarFormat {
