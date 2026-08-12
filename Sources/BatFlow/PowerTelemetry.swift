@@ -111,7 +111,7 @@ public final class PowerTelemetryService: @unchecked Sendable {
     private var smcOpenFailed = false
     private let smcLock = NSLock()
     /// Cached `getKeyInfo` results so steady-state polls only issue the read call.
-    private var smcFloatKeyInfo: [UInt32: UInt32] = [:] // key -> dataSize (0 means absent/invalid)
+    private var smcFloatKeyInfo: [UInt32: UInt32] = [:] // key -> dataSize (successes only)
 
     private func fourCharCode(_ string: String) -> UInt32 {
         var result: UInt32 = 0
@@ -175,10 +175,11 @@ public final class PowerTelemetryService: @unchecked Sendable {
             var infoInput = SMCParamStruct()
             infoInput.key = key
             infoInput.data8 = SMCParamStruct.Selector.getKeyInfo.rawValue
+            // Only cache successful lookups. A transient IOKit failure must not
+            // permanently disable the key for the life of the process.
             guard let info = smcCall(&infoInput, on: conn),
                   info.keyInfo.dataType == smcFloatType,
                   info.keyInfo.dataSize == 4 else {
-                smcFloatKeyInfo[key] = 0
                 return nil
             }
             smcFloatKeyInfo[key] = info.keyInfo.dataSize

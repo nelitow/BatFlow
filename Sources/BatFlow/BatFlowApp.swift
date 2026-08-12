@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var viewModel: TelemetryViewModel?
     private var cancellables = Set<AnyCancellable>()
     private var lastMenuBarTitle: String = ""
+    /// Transient popovers dismiss on the status-item mousedown that also fires
+    /// `togglePopover`. Swallow that click so we don't immediately reopen, and so a
+    /// deferred `popoverDidClose` cannot tear down a freshly shown popover.
+    private var ignoreNextToggle = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -29,8 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         
         // Do not attach PopoverView here. Instantiating NSHostingController at launch
         // loads the SwiftUI tree; once the popover has been opened once, a
-        // `repeatForever` animation kept driving layout/render at ~20% CPU even
-        // after close. Content is created on open and torn down on close.
+        // forever animation kept driving layout/render at ~20% CPU even after close.
+        // Content is created on open and torn down on close.
         let popover = NSPopover()
         popover.contentSize = NSSize(width: 440, height: 680)
         popover.behavior = .transient
@@ -59,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     
     @objc private func togglePopover(_ sender: AnyObject?) {
+        if ignoreNextToggle {
+            ignoreNextToggle = false
+            return
+        }
+        
         guard let button = statusItem?.button, let popover = popover, let vm = viewModel else { return }
         if popover.isShown {
             popover.performClose(sender)
@@ -83,7 +92,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     
     // MARK: - NSPopoverDelegate
     
+    func popoverWillClose(_ notification: Notification) {
+        ignoreNextToggle = true
+    }
+    
     func popoverDidClose(_ notification: Notification) {
+        // If the same click already re-showed the popover, leave it alone.
+        guard popover?.isShown != true else { return }
         tearDownPopoverContent()
+        DispatchQueue.main.async { [weak self] in
+            self?.ignoreNextToggle = false
+        }
     }
 }
