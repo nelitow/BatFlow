@@ -4,8 +4,6 @@ public struct ChargeFlowDiagram: View {
     let snapshot: PowerSnapshot
     let viewModel: TelemetryViewModel
     
-    @State private var phase: CGFloat = 0
-    
     public init(snapshot: PowerSnapshot, viewModel: TelemetryViewModel) {
         self.snapshot = snapshot
         self.viewModel = viewModel
@@ -57,13 +55,21 @@ public struct ChargeFlowDiagram: View {
                         Spacer()
                     }
                     
-                    // Animated Flow Lines Divider
-                    FlowLinesView(
-                        phase: phase,
-                        hasCharger: snapshot.hasChargerConnected,
-                        isCharging: snapshot.isCharging,
-                        hasOutput: snapshot.outputPortsWatts > 0.05
-                    )
+                    // TimelineView only ticks while this view is in the hierarchy; tearing
+                    // down the popover hosting controller stops the display-link work.
+                    // Cap at 15 fps — plenty for dashed-line motion, half the layout cost.
+                    TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: false)) { context in
+                        let phase = CGFloat(
+                            context.date.timeIntervalSinceReferenceDate
+                                .truncatingRemainder(dividingBy: 2.0) / 2.0
+                        )
+                        FlowLinesView(
+                            phase: phase,
+                            hasCharger: snapshot.hasChargerConnected,
+                            isCharging: snapshot.isCharging,
+                            hasOutput: snapshot.outputPortsWatts > 0.05
+                        )
+                    }
                     .frame(height: 36)
                     
                     // BOTTOM: Distribution Targets (CPU/Mac, Battery, USB-C Ports)
@@ -97,11 +103,6 @@ public struct ChargeFlowDiagram: View {
                     }
                 }
                 .padding(16)
-            }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 2.0).repeatForever(autoreverses: false)) {
-                phase = 1.0
             }
         }
     }
