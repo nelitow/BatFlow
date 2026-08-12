@@ -110,6 +110,8 @@ public final class PowerTelemetryService: @unchecked Sendable {
     private var smcConnection: io_connect_t = 0
     private var smcOpenFailed = false
     private let smcLock = NSLock()
+    /// Cached `getKeyInfo` results so steady-state polls only issue the read call.
+    private var smcFloatKeyInfo: [UInt32: UInt32] = [:] // key -> dataSize (0 means absent/invalid)
 
     private func fourCharCode(_ string: String) -> UInt32 {
         var result: UInt32 = 0
@@ -165,18 +167,27 @@ public final class PowerTelemetryService: @unchecked Sendable {
         guard let conn = smcConnect() else { return nil }
         let key = fourCharCode(keyStr)
 
-        var infoInput = SMCParamStruct()
-        infoInput.key = key
-        infoInput.data8 = SMCParamStruct.Selector.getKeyInfo.rawValue
-        guard let info = smcCall(&infoInput, on: conn),
-              info.keyInfo.dataType == smcFloatType,
-              info.keyInfo.dataSize == 4 else {
-            return nil
+        let dataSize: UInt32
+        if let cached = smcFloatKeyInfo[key] {
+            guard cached == 4 else { return nil }
+            dataSize = cached
+        } else {
+            var infoInput = SMCParamStruct()
+            infoInput.key = key
+            infoInput.data8 = SMCParamStruct.Selector.getKeyInfo.rawValue
+            guard let info = smcCall(&infoInput, on: conn),
+                  info.keyInfo.dataType == smcFloatType,
+                  info.keyInfo.dataSize == 4 else {
+                smcFloatKeyInfo[key] = 0
+                return nil
+            }
+            smcFloatKeyInfo[key] = info.keyInfo.dataSize
+            dataSize = info.keyInfo.dataSize
         }
 
         var readInput = SMCParamStruct()
         readInput.key = key
-        readInput.keyInfo.dataSize = 4
+        readInput.keyInfo.dataSize = dataSize
         readInput.data8 = SMCParamStruct.Selector.readKey.rawValue
         guard let output = smcCall(&readInput, on: conn) else { return nil }
 

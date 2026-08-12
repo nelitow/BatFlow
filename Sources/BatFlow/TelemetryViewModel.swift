@@ -22,21 +22,47 @@ public enum StatusBarFormat: String, CaseIterable, Identifiable, Codable {
 public final class TelemetryViewModel: ObservableObject {
     @Published public private(set) var currentSnapshot: PowerSnapshot
     @Published public private(set) var history: [PowerSnapshot] = []
+    /// Separate from `currentSnapshot` so the status-item sink ignores heavy poll churn.
+    @Published public private(set) var menuBarTitle: String = ""
     
-    @AppStorage("tempUnit") public var tempUnit: TempUnit = .celsius
+    /// True while the popover UI is on screen. When false we still poll for the menu
+    /// bar, but skip history accumulation and avoid publishing snapshot updates.
+    public var isPopoverVisible: Bool = false {
+        didSet {
+            guard isPopoverVisible else { return }
+            // Seed the UI with the freshest bar-only sample on open.
+            currentSnapshot = latestSnapshot
+            if history.last?.timestamp != latestSnapshot.timestamp {
+                history.append(latestSnapshot)
+                if history.count > 180 {
+                    history.removeFirst(history.count - 180)
+                }
+            }
+        }
+    }
+    
+    @AppStorage("tempUnit") public var tempUnit: TempUnit = .celsius {
+        didSet { publishMenuBarTitle() }
+    }
     @AppStorage("pollingInterval") public var pollingInterval: Double = 2.0 {
         didSet { restartTimer() }
     }
-    @AppStorage("statusBarFormat") public var statusBarFormat: StatusBarFormat = .full
+    @AppStorage("statusBarFormat") public var statusBarFormat: StatusBarFormat = .full {
+        didSet { publishMenuBarTitle() }
+    }
     @AppStorage("showHealthAndCycles") public var showHealthAndCycles: Bool = false
     
     private var timerCancellable: AnyCancellable?
     private let service = PowerTelemetryService.shared
+    /// Latest poll retained without publishing while the popover is closed.
+    private var latestSnapshot: PowerSnapshot
     
     public init() {
         let initial = service.fetchSnapshot()
         self.currentSnapshot = initial
+        self.latestSnapshot = initial
         self.history.append(initial)
+        self.menuBarTitle = Self.makeMenuBarTitle(snapshot: initial, tempUnit: tempUnit, format: statusBarFormat)
         startTimer()
     }
     
@@ -55,8 +81,18 @@ public final class TelemetryViewModel: ObservableObject {
     
     public func refresh() {
         let snap = service.fetchSnapshot()
-        self.currentSnapshot = snap
-        self.history.append(snap)
+        latestSnapshot = snap
+        let title = Self.makeMenuBarTitle(snapshot: snap, tempUnit: tempUnit, format: statusBarFormat)
+        
+        if title != menuBarTitle {
+            menuBarTitle = title
+        }
+        
+        // Menu-bar-only: do not publish snapshot/history (nothing visible needs them).
+        guard isPopoverVisible else { return }
+        
+        currentSnapshot = snap
+        history.append(snap)
         
         // Retain max 180 snapshots (approx 6 minutes at 2s interval)
         if history.count > 180 {
@@ -65,7 +101,19 @@ public final class TelemetryViewModel: ObservableObject {
     }
     
     public func formattedTemp(_ tempC: Double) -> String {
-        switch tempUnit {
+        Self.formatTemp(tempC, unit: tempUnit)
+    }
+    
+    private func publishMenuBarTitle() {
+        menuBarTitle = Self.makeMenuBarTitle(
+            snapshot: latestSnapshot,
+            tempUnit: tempUnit,
+            format: statusBarFormat
+        )
+    }
+    
+    private static func formatTemp(_ tempC: Double, unit: TempUnit) -> String {
+        switch unit {
         case .celsius:
             return String(format: "%.1f°C", tempC)
         case .fahrenheit:
@@ -74,15 +122,19 @@ public final class TelemetryViewModel: ObservableObject {
         }
     }
     
-    public var menuBarTitle: String {
-        let pct = "\(currentSnapshot.batteryPercent)%"
-        let temp = formattedTemp(currentSnapshot.batteryTempC)
+    private static func makeMenuBarTitle(
+        snapshot: PowerSnapshot,
+        tempUnit: TempUnit,
+        format: StatusBarFormat
+    ) -> String {
+        let pct = "\(snapshot.batteryPercent)%"
+        let temp = formatTemp(snapshot.batteryTempC, unit: tempUnit)
         // System draw, not adapter capability: the negotiated USB-PD contract sits at the
         // brick's rating whenever it is plugged in and would read "140W" permanently.
-        let watts = String(format: "%.0fW", currentSnapshot.systemWatts)
-        let bolt = currentSnapshot.isCharging ? "⚡️ " : "🔋 "
+        let watts = String(format: "%.0fW", snapshot.systemWatts)
+        let bolt = snapshot.isCharging ? "⚡️ " : "🔋 "
         
-        switch statusBarFormat {
+        switch format {
         case .compact:
             return "\(bolt)\(pct) • \(temp)"
         case .full:
