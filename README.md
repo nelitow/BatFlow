@@ -26,25 +26,25 @@
 
 ## 💡 Overview
 
-**BatFlow** is an open-source, lightweight native macOS menu bar application designed to replace legacy tools like BatFi on modern macOS (macOS 14, 15, 16, 27+).
+**BatFlow** is an open-source, lightweight native macOS notch utility. Point at the notch (or press ⌃⌥N) and a panel drops down with live power telemetry, your Apple Reminders, your Linear issues and Slack unreads.
 
-Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow provides real-time power distribution breakdown, Apple Silicon SMC battery temperature sensing, USB-C output port wattage inspection, and historical telemetry charts.
+Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow provides a real-time power breakdown, Apple Silicon SMC battery temperature sensing and USB-C accessory wattage.
 
 > [!NOTE]
 > **Designed for macOS 15 & 27+**
-> Recent macOS releases include native system battery charge management (such as the 80% charging limit). **BatFlow intentionally focuses on deep observability and rich visual telemetry** — real-time power flow graphs, per-port USB-C wattage inspection, SMC thermal monitoring, and charge ETA — without interfering with macOS native power management routines.
+> Recent macOS releases include native system battery charge management (such as the 80% charging limit). **BatFlow intentionally focuses on deep observability and rich visual telemetry** — real-time power breakdown, USB-C accessory wattage, SMC thermal monitoring and charge ETA — without interfering with macOS native power management routines.
 
 ---
 
 ## ✨ Features
 
-- ⚡️ **Real-Time Charge Flow Graph** — Animated node diagram showing live power split between AC Charger input, Mac/CPU usage, Battery charge/discharge rate, and USB-C Output Ports
+- 🏝 **Notch Panel** — Point at the notch (or press ⌃⌥N) to drop down a panel with three cards: Power, Reminders and Linear. On Macs without a notch it opens from the top centre of the menu bar. Settings live behind the gear in the panel
+- ⚡️ **Power** — Battery level, charge/drain ETA, and live watts for the adapter, system, battery and USB-C accessories, with a rolling power graph
 - 🌡 **Precision SMC Battery Temperature** — Reads Apple Silicon SMC keys (`TB0T`, `TB1T`, `TB2T`) for exact temperature in °C or °F
-- 🔌 **USB-C Output Port Wattage Inspector** — See exactly how many watts you're delivering to a connected iPhone, iPad, or accessory
-- ⏱ **Charge / Drain ETA** — Instant estimate of time until full charge or full battery drain
-- 📊 **Rolling Telemetry Charts** — Historical graphs tracking power draw and battery level over time using Swift Charts
-- ⚙️ **Customizable Status Bar** — Choose your menu bar format, polling interval, and temperature unit. Health & cycle count hidden by default (toggle in settings)
-- 🍃 **Zero Dependencies** — 100% native Swift & SwiftUI, ultra-low CPU and memory footprint
+- ✅ **Apple Reminders** — View, add and complete reminders in any of your lists. It edits your iCloud lists directly, so everything stays in sync with iPhone and Apple Watch
+- 📋 **Linear** — Your assigned In Progress, In Review and Todo issues, read through the [Linear CLI](https://github.com/schpet/linear-cli) (`brew install schpet/tap/linear`, then `linear auth login`). Click an issue to open it
+- 💬 **Slack Unreads** — Slack's Dock badge (mentions and DMs, or • for other unreads) in the notch header. Needs Accessibility access, no Slack token
+- 🍃 **Zero Dependencies** — 100% native Swift & SwiftUI, ultra-low CPU and memory footprint. Nothing polls while the panel is closed
 
 ---
 
@@ -55,7 +55,7 @@ Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow p
 1. **[⬇️ Download BatFlow-macOS.zip](https://github.com/nelitow/BatFlow/releases/latest/download/BatFlow-macOS.zip)**
 2. Unzip the file
 3. Drag `BatFlow.app` to your **Applications** folder (optional but recommended)
-4. Double-click to launch — BatFlow will appear in your menu bar
+4. Double-click to launch, then point at the notch or press ⌃⌥N. Open BatFlow again from Finder or Spotlight to show the panel
 
 > If macOS shows a security warning, go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
@@ -71,6 +71,7 @@ mkdir -p build/cache BatFlow.app/Contents/MacOS BatFlow.app/Contents/Resources
 
 swiftc -module-cache-path build/cache \
   -framework IOKit -framework AppKit -framework SwiftUI -framework Charts \
+  -framework EventKit -framework Carbon \
   -parse-as-library -O \
   -o BatFlow.app/Contents/MacOS/BatFlow \
   Sources/BatFlow/*.swift
@@ -89,7 +90,10 @@ open BatFlow.app
 | **Battery State** | `AppleSmartBattery` IOKit — level %, voltage, amperage, charger wattage, port output, cycle count, health |
 | **Temperature** | `AppleSMC` — float keys `TB0T` / `TB1T` / `TB2T` averaged for precision |
 | **System Power** | SMC key `PSTR` for real-time CPU/board power draw |
-| **UI** | SwiftUI + Swift Charts, zero third-party dependencies |
+| **UI** | Borderless notch panel (AppKit) hosting SwiftUI + Swift Charts, zero third-party dependencies |
+| **Reminders** | EventKit, reading and writing your iCloud lists |
+| **Linear** | `linear api` GraphQL query through the Linear CLI |
+| **Slack** | Slack's Dock badge via the Dock's accessibility tree |
 | **Release CI** | GitHub Actions — builds and publishes `BatFlow-macOS.zip` on every push to `main` |
 
 ---

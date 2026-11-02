@@ -1,11 +1,10 @@
 import SwiftUI
 import AppKit
-import Combine
 
 @main
 struct BatFlowApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+
     var body: some Scene {
         Settings {
             EmptyView()
@@ -14,94 +13,28 @@ struct BatFlowApp: App {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
-    private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
-    private var viewModel: TelemetryViewModel?
-    private var cancellables = Set<AnyCancellable>()
-    private var lastMenuBarTitle: String = ""
-    /// Transient popovers dismiss on the status-item mousedown that also fires
-    /// `togglePopover`. Swallow that click so we don't immediately reopen, and so a
-    /// deferred `popoverDidClose` cannot tear down a freshly shown popover.
-    private var ignoreNextToggle = false
-    
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var notchController: NotchController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        
-        let vm = TelemetryViewModel()
-        self.viewModel = vm
-        
-        // Do not attach PopoverView here. Instantiating NSHostingController at launch
-        // loads the SwiftUI tree; once the popover has been opened once, a
-        // forever animation kept driving layout/render at ~20% CPU even after close.
-        // Content is created on open and torn down on close.
-        let popover = NSPopover()
-        popover.contentSize = NSSize(width: 440, height: 680)
-        popover.behavior = .transient
-        popover.animates = true
-        popover.delegate = self
-        self.popover = popover
-        
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            button.title = vm.menuBarTitle
-            lastMenuBarTitle = vm.menuBarTitle
-            button.action = #selector(togglePopover(_:))
-            button.target = self
-        }
-        self.statusItem = item
-        
-        vm.$menuBarTitle
-            .receive(on: RunLoop.main)
-            .sink { [weak self] title in
-                guard let self, let button = self.statusItem?.button else { return }
-                guard title != self.lastMenuBarTitle else { return }
-                self.lastMenuBarTitle = title
-                button.title = title
+
+        let notch = NotchController(viewModel: TelemetryViewModel())
+        notch.start()
+        notchController = notch
+
+        // Opens the panel pinned at launch, for screenshots and UI review.
+        if CommandLine.arguments.contains("--open-notch") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                notch.open(pinned: true)
             }
-            .store(in: &cancellables)
-    }
-    
-    @objc private func togglePopover(_ sender: AnyObject?) {
-        if ignoreNextToggle {
-            ignoreNextToggle = false
-            return
-        }
-        
-        guard let button = statusItem?.button, let popover = popover, let vm = viewModel else { return }
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            vm.isPopoverVisible = true
-            ensurePopoverContent(viewModel: vm)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
         }
     }
-    
-    private func ensurePopoverContent(viewModel: TelemetryViewModel) {
-        guard popover?.contentViewController == nil else { return }
-        popover?.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))
-    }
-    
-    private func tearDownPopoverContent() {
-        viewModel?.isPopoverVisible = false
-        // Drop the hosting controller so SwiftUI tears down TimelineView display links.
-        popover?.contentViewController = nil
-    }
-    
-    // MARK: - NSPopoverDelegate
-    
-    func popoverWillClose(_ notification: Notification) {
-        ignoreNextToggle = true
-    }
-    
-    func popoverDidClose(_ notification: Notification) {
-        // If the same click already re-showed the popover, leave it alone.
-        guard popover?.isShown != true else { return }
-        tearDownPopoverContent()
-        DispatchQueue.main.async { [weak self] in
-            self?.ignoreNextToggle = false
-        }
+
+    /// With no menu-bar item, opening BatFlow again (Finder, Spotlight, Dock) is the
+    /// way back in if hover and the shortcut are both unavailable.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        notchController?.open(makeKey: true)
+        return false
     }
 }
