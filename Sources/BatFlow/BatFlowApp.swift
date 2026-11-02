@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var viewModel: TelemetryViewModel?
+    private var notchController: NotchController?
+    /// Set when the notch's gear button asks for the popover to open on its settings.
+    private var openPopoverOnSettings = false
     private var cancellables = Set<AnyCancellable>()
     private var lastMenuBarTitle: String = ""
     /// Transient popovers dismiss on the status-item mousedown that also fires
@@ -60,6 +63,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 button.title = title
             }
             .store(in: &cancellables)
+        
+        let notch = NotchController(viewModel: vm) { [weak self] settings in
+            self?.showPopover(settings: settings)
+        }
+        notch.start()
+        self.notchController = notch
+        
+        // Opens the panel pinned at launch, for screenshots and UI review.
+        if CommandLine.arguments.contains("--open-notch") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                notch.open(pinned: true)
+            }
+        }
+    }
+    
+    private func showPopover(settings: Bool) {
+        guard let popover, !popover.isShown else { return }
+        openPopoverOnSettings = settings
+        // The notch close and this open happen in one click; skip the transient
+        // popover's swallow-next-toggle guard.
+        ignoreNextToggle = false
+        // The notch panel never activates the app; without this the popover
+        // renders in its inactive, washed-out appearance.
+        NSApp.activate(ignoringOtherApps: true)
+        togglePopover(nil)
     }
     
     @objc private func togglePopover(_ sender: AnyObject?) {
@@ -81,7 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     
     private func ensurePopoverContent(viewModel: TelemetryViewModel) {
         guard popover?.contentViewController == nil else { return }
-        popover?.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))
+        let showSettings = openPopoverOnSettings
+        openPopoverOnSettings = false
+        popover?.contentViewController = NSHostingController(
+            rootView: PopoverView(viewModel: viewModel, startWithSettings: showSettings)
+        )
     }
     
     private func tearDownPopoverContent() {

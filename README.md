@@ -44,6 +44,10 @@ Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow p
 - ⏱ **Charge / Drain ETA** — Instant estimate of time until full charge or full battery drain
 - 📊 **Rolling Telemetry Charts** — Historical graphs tracking power draw and battery level over time using Swift Charts
 - ⚙️ **Customizable Status Bar** — Choose your menu bar format, polling interval, and temperature unit. Health & cycle count hidden by default (toggle in settings)
+- 🏝 **Notch Panel** — Point at the notch (or press ⌃⌥N) to drop down a panel with three cards: Power, Reminders and Linear. On Macs without a notch it opens from the top centre of the menu bar
+- ✅ **Apple Reminders** — View, add and complete reminders in any of your lists. It edits your iCloud lists directly, so everything stays in sync with iPhone and Apple Watch
+- 📋 **Linear** — Your assigned In Progress, In Review and Todo issues, read through the [Linear CLI](https://github.com/schpet/linear-cli) (`brew install schpet/tap/linear`, then `linear auth login`). Click an issue to open it
+- 💬 **Slack Unreads** — Slack's Dock badge (mentions and DMs, or • for other unreads) in the notch header. Needs Accessibility access, no Slack token
 - 🍃 **Zero Dependencies** — 100% native Swift & SwiftUI, ultra-low CPU and memory footprint
 
 ---

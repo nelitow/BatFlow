@@ -2,10 +2,11 @@ import SwiftUI
 
 public struct PopoverView: View {
     @ObservedObject var viewModel: TelemetryViewModel
-    @State private var showingSettings = false
+    @State private var showingSettings: Bool
     
-    public init(viewModel: TelemetryViewModel) {
+    public init(viewModel: TelemetryViewModel, startWithSettings: Bool = false) {
         self.viewModel = viewModel
+        self._showingSettings = State(initialValue: startWithSettings)
     }
     
     public var body: some View {
@@ -264,6 +265,33 @@ private struct SettingsPanel: View {
                     Text("Show Health & Cycle Count")
                         .font(.subheadline)
                     Text("Displays battery health % and charge cycle count")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            
+            Divider()
+            
+            Text("Notch")
+                .font(.headline)
+            
+            Toggle(isOn: $viewModel.notchOpensOnHover) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Open on Hover")
+                        .font(.subheadline)
+                    Text("Point at the notch to show Power, Reminders and Linear")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            
+            Toggle(isOn: $viewModel.notchHotKeyEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Keyboard Shortcut \(GlobalHotKey.displayString)")
+                        .font(.subheadline)
+                    Text("Toggle the notch panel from anywhere")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

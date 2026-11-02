@@ -18,6 +18,10 @@ public enum StatusBarFormat: String, CaseIterable, Identifiable, Codable {
     public var id: String { rawValue }
 }
 
+extension Notification.Name {
+    static let batFlowHotKeySettingChanged = Notification.Name("BatFlowHotKeySettingChanged")
+}
+
 @MainActor
 public final class TelemetryViewModel: ObservableObject {
     @Published public private(set) var currentSnapshot: PowerSnapshot
@@ -25,18 +29,27 @@ public final class TelemetryViewModel: ObservableObject {
     /// Separate from `currentSnapshot` so the status-item sink ignores heavy poll churn.
     @Published public private(set) var menuBarTitle: String = ""
     
-    /// True while the popover UI is on screen. When false we still poll for the menu
-    /// bar, but skip history accumulation and avoid publishing snapshot updates.
+    /// True while the popover UI is on screen. When no UI surface is visible we still
+    /// poll for the menu bar, but skip history accumulation and snapshot publishing.
     public var isPopoverVisible: Bool = false {
-        didSet {
-            guard isPopoverVisible else { return }
-            // Seed the UI with the freshest bar-only sample on open.
-            currentSnapshot = latestSnapshot
-            if history.last?.timestamp != latestSnapshot.timestamp {
-                history.append(latestSnapshot)
-                if history.count > 180 {
-                    history.removeFirst(history.count - 180)
-                }
+        didSet { if isPopoverVisible { seedVisibleUI() } }
+    }
+    
+    /// True while the notch panel is open. Tracked separately from the popover because
+    /// both can be on screen at once.
+    public var isNotchVisible: Bool = false {
+        didSet { if isNotchVisible { seedVisibleUI() } }
+    }
+    
+    private var isAnyUIVisible: Bool { isPopoverVisible || isNotchVisible }
+    
+    private func seedVisibleUI() {
+        // Seed the UI with the freshest bar-only sample on open.
+        currentSnapshot = latestSnapshot
+        if history.last?.timestamp != latestSnapshot.timestamp {
+            history.append(latestSnapshot)
+            if history.count > 180 {
+                history.removeFirst(history.count - 180)
             }
         }
     }
@@ -51,6 +64,10 @@ public final class TelemetryViewModel: ObservableObject {
         didSet { publishMenuBarTitle() }
     }
     @AppStorage("showHealthAndCycles") public var showHealthAndCycles: Bool = false
+    @AppStorage("notchOpensOnHover") public var notchOpensOnHover: Bool = true
+    @AppStorage("notchHotKeyEnabled") public var notchHotKeyEnabled: Bool = true {
+        didSet { NotificationCenter.default.post(name: .batFlowHotKeySettingChanged, object: nil) }
+    }
     
     private var timerCancellable: AnyCancellable?
     private let service = PowerTelemetryService.shared
@@ -89,7 +106,7 @@ public final class TelemetryViewModel: ObservableObject {
         }
         
         // Menu-bar-only: do not publish snapshot/history (nothing visible needs them).
-        guard isPopoverVisible else { return }
+        guard isAnyUIVisible else { return }
         
         currentSnapshot = snap
         history.append(snap)
