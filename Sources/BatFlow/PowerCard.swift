@@ -3,16 +3,12 @@ import Charts
 
 struct PowerCard: View {
     @ObservedObject var viewModel: TelemetryViewModel
-    let onShowDetails: () -> Void
 
     var body: some View {
         let snap = viewModel.currentSnapshot
 
         NotchCard(title: "Power", systemImage: "bolt.fill", tint: .green) {
-            Button("Details", action: onShowDetails)
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+            EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {

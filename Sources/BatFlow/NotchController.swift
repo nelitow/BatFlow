@@ -37,6 +37,7 @@ struct NotchGeometry: Equatable {
 @MainActor
 final class NotchState: ObservableObject {
     @Published var isExpanded = false
+    @Published var showingSettings = false
     @Published var closedSize: CGSize = .zero
     @Published var openSize: CGSize = .zero
     var hasNotch = true
@@ -100,7 +101,6 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 final class NotchController: NSObject, NSWindowDelegate {
     private let viewModel: TelemetryViewModel
-    private let onShowDetails: (_ settings: Bool) -> Void
 
     private let state = NotchState()
     private var geometry: NotchGeometry?
@@ -122,9 +122,8 @@ final class NotchController: NSObject, NSWindowDelegate {
 
     var isOpen: Bool { state.isExpanded }
 
-    init(viewModel: TelemetryViewModel, onShowDetails: @escaping (_ settings: Bool) -> Void) {
+    init(viewModel: TelemetryViewModel) {
         self.viewModel = viewModel
-        self.onShowDetails = onShowDetails
         super.init()
     }
 
@@ -184,8 +183,14 @@ final class NotchController: NSObject, NSWindowDelegate {
             let root = NotchRootView(
                 state: state,
                 viewModel: viewModel,
-                onShowDetails: { [weak self] in self?.showDetails(settings: false) },
-                onShowSettings: { [weak self] in self?.showDetails(settings: true) },
+                onToggleSettings: { [weak self] in
+                    guard let self else { return }
+                    // Controls in a non-key panel draw in their grey inactive style.
+                    self.panel?.makeKey()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        self.state.showingSettings.toggle()
+                    }
+                },
                 onOpenURL: { [weak self] url in
                     NSWorkspace.shared.open(url)
                     self?.close()
@@ -246,6 +251,7 @@ final class NotchController: NSObject, NSWindowDelegate {
             // Drop the SwiftUI tree so nothing keeps rendering while closed.
             self.hostingView?.removeFromSuperview()
             self.hostingView = nil
+            self.state.showingSettings = false
             self.viewModel.isNotchVisible = false
         }
         pendingTeardown = teardown
@@ -253,15 +259,6 @@ final class NotchController: NSObject, NSWindowDelegate {
     }
 
     // MARK: Private
-
-    private func showDetails(settings: Bool) {
-        close()
-        // Let the collapse finish first; building the popover's SwiftUI tree blocks
-        // the main thread long enough to freeze the notch mid-animation.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) { [onShowDetails] in
-            onShowDetails(settings)
-        }
-    }
 
     private func updateHotKey() {
         if viewModel.notchHotKeyEnabled {

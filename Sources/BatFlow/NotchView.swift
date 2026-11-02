@@ -50,8 +50,7 @@ struct NotchShape: Shape {
 struct NotchRootView: View {
     @ObservedObject var state: NotchState
     @ObservedObject var viewModel: TelemetryViewModel
-    let onShowDetails: () -> Void
-    let onShowSettings: () -> Void
+    let onToggleSettings: () -> Void
     let onOpenURL: (URL) -> Void
     let onDismiss: () -> Void
 
@@ -69,8 +68,8 @@ struct NotchRootView: View {
                 NotchContent(
                     viewModel: viewModel,
                     headerHeight: state.closedSize.height,
-                    onShowDetails: onShowDetails,
-                    onShowSettings: onShowSettings,
+                    showingSettings: state.showingSettings,
+                    onToggleSettings: onToggleSettings,
                     onOpenURL: onOpenURL,
                     onDismiss: onDismiss
                 )
@@ -97,8 +96,8 @@ struct NotchRootView: View {
 private struct NotchContent: View {
     @ObservedObject var viewModel: TelemetryViewModel
     let headerHeight: CGFloat
-    let onShowDetails: () -> Void
-    let onShowSettings: () -> Void
+    let showingSettings: Bool
+    let onToggleSettings: () -> Void
     let onOpenURL: (URL) -> Void
     let onDismiss: () -> Void
 
@@ -107,10 +106,18 @@ private struct NotchContent: View {
             header
                 .frame(height: headerHeight)
 
-            HStack(alignment: .top, spacing: 10) {
-                PowerCard(viewModel: viewModel, onShowDetails: onShowDetails)
-                RemindersCard()
-                LinearCard(onOpenURL: onOpenURL)
+            Group {
+                if showingSettings {
+                    NotchSettingsView(viewModel: viewModel)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    HStack(alignment: .top, spacing: 10) {
+                        PowerCard(viewModel: viewModel)
+                        RemindersCard()
+                        LinearCard(onOpenURL: onOpenURL)
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
             .padding(.horizontal, 14)
             .padding(.top, 6)
@@ -141,7 +148,11 @@ private struct NotchContent: View {
                 Text(Date.now, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                NotchIconButton(systemName: "gearshape", help: "Settings", action: onShowSettings)
+                NotchIconButton(
+                    systemName: showingSettings ? "xmark" : "gearshape",
+                    help: showingSettings ? "Done" : "Settings",
+                    action: onToggleSettings
+                )
             }
             .padding(.trailing, 22)
         }
