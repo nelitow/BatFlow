@@ -94,7 +94,9 @@ final class HoverTrackingView: NSView {
 /// AppKit so that refreshing it every few seconds costs next to nothing.
 final class PowerPillView: NSView {
     /// Space between the pill's rounded left end and the text.
-    static let leadingPadding: CGFloat = 10
+    static let leadingPadding: CGFloat = 8
+    /// Three stacked lines have to fit in the notch's ~32 pt height.
+    static let lineHeight: CGFloat = 9.5
     /// How far the pill tucks under the hardware notch, so its flat bottom edge
     /// meets the notch's rounded corner without a gap.
     static let overlap: CGFloat = 12
@@ -104,6 +106,7 @@ final class PowerPillView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         label.alignment = .right
+        label.maximumNumberOfLines = 3
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
@@ -118,12 +121,16 @@ final class PowerPillView: NSView {
     /// Returns the pill width the new text needs.
     func update(_ snap: PowerSnapshot) -> CGFloat {
         let text = NSMutableAttributedString()
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .semibold)
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 6.5, weight: .bold)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        paragraph.minimumLineHeight = Self.lineHeight
+        paragraph.maximumLineHeight = Self.lineHeight
 
         func append(symbol: String, _ value: String, color: NSColor) {
             if text.length > 0 {
-                text.append(NSAttributedString(string: "  ", attributes: [.font: font]))
+                text.append(NSAttributedString(string: "\n", attributes: [.font: font]))
             }
             if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(symbolConfig.applying(.init(paletteColors: [color]))) {
@@ -145,6 +152,7 @@ final class PowerPillView: NSView {
             color: snap.isCharging ? .systemGreen : .white
         )
 
+        text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
         label.attributedStringValue = text
         toolTip = snap.hasChargerConnected
             ? "Power in · System draw · Battery"
