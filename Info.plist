@@ -20,9 +20,5 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>BatFlow shows and edits your reminders in the notch. Changes sync to your other devices through iCloud.</string>
-	<key>NSRemindersUsageDescription</key>
-	<string>BatFlow shows and edits your reminders in the notch. Changes sync to your other devices through iCloud.</string>
 </dict>
 </plist>

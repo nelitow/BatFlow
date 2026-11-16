@@ -5,9 +5,7 @@ import AppKit
 /// Laid out like System Settings' grouped rows.
 struct NotchSettingsView: View {
     @ObservedObject var viewModel: TelemetryViewModel
-    @ObservedObject private var reminders = RemindersStore.shared
     @ObservedObject private var slack = SlackBadgeStore.shared
-    @ObservedObject private var linear = LinearStore.shared
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -25,6 +23,9 @@ struct NotchSettingsView: View {
                     SettingsRow("Keyboard Shortcut  \(GlobalHotKey.displayString)") {
                         Toggle("", isOn: $viewModel.notchHotKeyEnabled)
                             .disabled(!viewModel.notchOpensOnHover)
+                    }
+                    SettingsRow("Show Power Beside Notch") {
+                        Toggle("", isOn: $viewModel.showsNotchPower)
                     }
                 }
                 SettingsGroup(title: "Power") {
@@ -48,20 +49,10 @@ struct NotchSettingsView: View {
 
             VStack(spacing: 10) {
                 SettingsGroup(title: "Connections") {
-                    SettingsRow("Reminders", status: remindersStatus) {
-                        switch reminders.access {
-                        case .granted: EmptyView()
-                        case .notDetermined: Button("Allow") { reminders.requestAccess() }
-                        case .denied: Button("Open Settings") { reminders.openPrivacySettings() }
-                        }
-                    }
                     SettingsRow("Slack Unreads", status: slack.hasAccessibilityAccess ? "Reading Slack's Dock badge" : "Needs Accessibility access") {
                         if !slack.hasAccessibilityAccess {
                             Button("Allow") { slack.requestAccessibilityAccess() }
                         }
-                    }
-                    SettingsRow("Linear", status: LinearStore.locateCLI() == nil ? "Linear CLI not installed" : "Using the linear CLI") {
-                        EmptyView()
                     }
                 }
 
@@ -80,14 +71,6 @@ struct NotchSettingsView: View {
         .toggleStyle(.switch)
         .labelsHidden()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var remindersStatus: String {
-        switch reminders.access {
-        case .granted: return reminders.selectedList.map { "Showing “\($0.title)”" } ?? "Connected"
-        case .notDetermined: return "Not connected"
-        case .denied: return "Access denied"
-        }
     }
 }
 
