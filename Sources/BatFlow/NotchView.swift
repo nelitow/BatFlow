@@ -51,7 +51,6 @@ struct NotchRootView: View {
     @ObservedObject var state: NotchState
     @ObservedObject var viewModel: TelemetryViewModel
     let onToggleSettings: () -> Void
-    let onOpenURL: (URL) -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -70,7 +69,6 @@ struct NotchRootView: View {
                     headerHeight: state.closedSize.height,
                     showingSettings: state.showingSettings,
                     onToggleSettings: onToggleSettings,
-                    onOpenURL: onOpenURL,
                     onDismiss: onDismiss
                 )
                 .padding(.horizontal, NotchState.earRadius)
@@ -98,7 +96,6 @@ private struct NotchContent: View {
     let headerHeight: CGFloat
     let showingSettings: Bool
     let onToggleSettings: () -> Void
-    let onOpenURL: (URL) -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -113,8 +110,7 @@ private struct NotchContent: View {
                 } else {
                     HStack(alignment: .top, spacing: 10) {
                         PowerCard(viewModel: viewModel)
-                        RemindersCard()
-                        LinearCard(onOpenURL: onOpenURL)
+                        AppsCard(viewModel: viewModel)
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
@@ -128,19 +124,7 @@ private struct NotchContent: View {
     /// The strip beside the camera housing. Its middle sits under the notch, so
     /// content lives at the two ends, as on the Dynamic Island.
     private var header: some View {
-        let snap = viewModel.currentSnapshot
-        return HStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: BatteryGlyph.name(percent: snap.batteryPercent, charging: snap.isCharging || snap.hasChargerConnected))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(snap.isCharging ? Color.green : Color.white, Color.white.opacity(0.35))
-                    .font(.system(size: 13, weight: .medium))
-                Text("\(snap.batteryPercent)%")
-                    .font(.system(size: 12, weight: .semibold))
-                    .monospacedDigit()
-            }
-            .padding(.leading, 22)
-
+        HStack(spacing: 0) {
             Spacer()
 
             HStack(spacing: 12) {

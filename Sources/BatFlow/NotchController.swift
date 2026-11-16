@@ -44,7 +44,7 @@ final class NotchState: ObservableObject {
 
     static let earRadius: CGFloat = 12
     static let openContentHeight: CGFloat = 318
-    static let openWidth: CGFloat = 860
+    static let openWidth: CGFloat = 640
 }
 
 // MARK: - Windows
@@ -90,6 +90,65 @@ final class HoverTrackingView: NSView {
     override func mouseExited(with event: NSEvent) { onExit?() }
 }
 
+/// The always-on wattage readout. It widens the notch to the left, drawn in plain
+/// AppKit so that refreshing it every few seconds costs next to nothing.
+final class PowerPillView: NSView {
+    static let width: CGFloat = 64
+    /// How far the pill tucks under the hardware notch, so its flat bottom edge
+    /// meets the notch's rounded corner without a gap.
+    static let overlap: CGFloat = 12
+
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.alignment = .right
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(Self.overlap + 2)),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(watts: Double, charging: Bool) {
+        let text = NSMutableAttributedString()
+        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+        if let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            let attachment = NSTextAttachment()
+            attachment.image = bolt
+            text.append(NSAttributedString(attachment: attachment))
+            text.append(NSAttributedString(string: " "))
+        }
+        text.append(NSAttributedString(string: String(format: "%.1fW", watts)))
+        let color: NSColor = charging ? .systemGreen : .white
+        text.addAttributes([
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: color
+        ], range: NSRange(location: 0, length: text.length))
+        label.attributedStringValue = text
+        toolTip = "System power draw"
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let radius: CGFloat = 8
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: bounds.minX, y: bounds.maxY))
+        path.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY))
+        path.line(to: NSPoint(x: bounds.maxX, y: bounds.minY))
+        path.line(to: NSPoint(x: bounds.minX + radius, y: bounds.minY))
+        path.appendArc(
+            withCenter: NSPoint(x: bounds.minX + radius, y: bounds.minY + radius),
+            radius: radius, startAngle: 270, endAngle: 180, clockwise: true
+        )
+        path.close()
+        NSColor.black.setFill()
+        path.fill()
+    }
+}
+
 /// The panel never activates the app, so every click is a "first" click. Without
 /// this, buttons would need two clicks whenever another app is frontmost.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
@@ -105,6 +164,8 @@ final class NotchController: NSObject, NSWindowDelegate {
     private let state = NotchState()
     private var geometry: NotchGeometry?
     private var triggerWindow: NSWindow?
+    private var pillWindow: NSWindow?
+    private var pillView: PowerPillView?
     private var panel: NotchPanel?
     private var hostingView: FirstMouseHostingView<NotchRootView>?
     private var hotKey: GlobalHotKey?
@@ -119,6 +180,8 @@ final class NotchController: NSObject, NSWindowDelegate {
     private var isPinned = false
 
     private static let shadowPadding: CGFloat = 28
+    /// How long the panel lingers after the pointer leaves it.
+    private static let hoverCloseDelay: TimeInterval = 1.5
 
     var isOpen: Bool { state.isExpanded }
 
@@ -152,7 +215,10 @@ final class NotchController: NSObject, NSWindowDelegate {
 
         viewModel.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.updateTriggerVisibility() }
+            .sink { [weak self] in
+                self?.updateTriggerVisibility()
+                self?.updatePill()
+            }
             .store(in: &cancellables)
 
         updateHotKey()
@@ -191,10 +257,6 @@ final class NotchController: NSObject, NSWindowDelegate {
                         self.state.showingSettings.toggle()
                     }
                 },
-                onOpenURL: { [weak self] url in
-                    NSWorkspace.shared.open(url)
-                    self?.close()
-                },
                 onDismiss: { [weak self] in self?.close() }
             )
             let host = FirstMouseHostingView(rootView: root)
@@ -205,6 +267,7 @@ final class NotchController: NSObject, NSWindowDelegate {
         }
 
         viewModel.isNotchVisible = true
+        updatePill()
         if makeKey {
             panel.makeKeyAndOrderFront(nil)
         } else {
@@ -230,7 +293,7 @@ final class NotchController: NSObject, NSWindowDelegate {
             )
             self.isMouseInside = shape.contains(NSEvent.mouseLocation)
             if !self.isMouseInside && !(self.panel?.isKeyWindow ?? false) {
-                self.scheduleClose(after: 0.25)
+                self.scheduleClose(after: Self.hoverCloseDelay)
             }
         }
     }
@@ -253,6 +316,7 @@ final class NotchController: NSObject, NSWindowDelegate {
             self.hostingView = nil
             self.state.showingSettings = false
             self.viewModel.isNotchVisible = false
+            self.updatePill()
         }
         pendingTeardown = teardown
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.36, execute: teardown)
@@ -309,6 +373,45 @@ final class NotchController: NSObject, NSWindowDelegate {
         trigger.setFrame(triggerRect, display: true)
         triggerWindow = trigger
         updateTriggerVisibility()
+
+        let pill = pillWindow ?? makePillWindow()
+        pill.setFrame(NSRect(
+            x: geometry.notchRect.minX - PowerPillView.width + PowerPillView.overlap,
+            y: geometry.notchRect.minY,
+            width: PowerPillView.width,
+            height: geometry.notchRect.height
+        ), display: true)
+        pillWindow = pill
+        updatePill()
+    }
+
+    /// Shown only beside a real notch: on other screens it would be a black blob
+    /// in the middle of the menu bar. Hidden while the panel covers it anyway.
+    private func updatePill() {
+        guard let pillWindow, let pillView else { return }
+        let shouldShow = viewModel.showsNotchPower && (geometry?.hasNotch ?? false) && !viewModel.isNotchVisible
+        if shouldShow {
+            let snap = viewModel.currentSnapshot
+            pillView.update(watts: snap.systemWatts, charging: snap.isCharging)
+            if !pillWindow.isVisible { pillWindow.orderFrontRegardless() }
+        } else if pillWindow.isVisible {
+            pillWindow.orderOut(nil)
+        }
+    }
+
+    private func makePillWindow() -> NSWindow {
+        let window = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+        window.level = Self.windowLevel
+        window.collectionBehavior = Self.collectionBehavior
+        window.isReleasedWhenClosed = false
+        let view = PowerPillView()
+        window.contentView = view
+        pillView = view
+        return window
     }
 
     private func panelFrame(for geometry: NotchGeometry) -> NSRect {
@@ -372,7 +475,7 @@ final class NotchController: NSObject, NSWindowDelegate {
         }
         tracker.onExit = { [weak self] in
             self?.isMouseInside = false
-            self?.scheduleClose(after: 0.25)
+            self?.scheduleClose(after: Self.hoverCloseDelay)
         }
         panel.contentView = tracker
         return panel

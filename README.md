@@ -26,7 +26,7 @@
 
 ## 💡 Overview
 
-**BatFlow** is an open-source, lightweight native macOS notch utility. Point at the notch (or press ⌃⌥N) and a panel drops down with live power telemetry, your Apple Reminders, your Linear issues and Slack unreads.
+**BatFlow** is an open-source, lightweight native macOS notch utility. Point at the notch (or press ⌃⌥N) and a panel drops down with live power telemetry, an estimate of which apps are using that power, and Slack unreads. A tiny live wattage readout sits permanently to the left of the notch.
 
 Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow provides a real-time power breakdown, Apple Silicon SMC battery temperature sensing and USB-C accessory wattage.
 
@@ -38,13 +38,13 @@ Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow p
 
 ## ✨ Features
 
-- 🏝 **Notch Panel** — Point at the notch (or press ⌃⌥N) to drop down a panel with three cards: Power, Reminders and Linear. On Macs without a notch it opens from the top centre of the menu bar. Settings live behind the gear in the panel
+- 🏝 **Notch Panel** — Point at the notch (or press ⌃⌥N) to drop down a panel with two cards: Power and Apps. On Macs without a notch it opens from the top centre of the menu bar. Settings live behind the gear in the panel
 - ⚡️ **Power** — Battery level, charge/drain ETA, and live watts for the adapter, system, battery and USB-C accessories, with a rolling power graph
 - 🌡 **Precision SMC Battery Temperature** — Reads Apple Silicon SMC keys (`TB0T`, `TB1T`, `TB2T`) for exact temperature in °C or °F
-- ✅ **Apple Reminders** — View, add and complete reminders in any of your lists. It edits your iCloud lists directly, so everything stays in sync with iPhone and Apple Watch
-- 📋 **Linear** — Your assigned In Progress, In Review and Todo issues, read through the [Linear CLI](https://github.com/schpet/linear-cli) (`brew install schpet/tap/linear`, then `linear auth login`). Click an issue to open it
+- 🔋 **Notch Power Readout** — Live system wattage to the left of the notch, always visible (can be turned off in Settings)
+- 📊 **Power by App** — A rough estimate of each app's share of system power, from the CPU time its processes use. Helper processes count toward their app
 - 💬 **Slack Unreads** — Slack's Dock badge (mentions and DMs, or • for other unreads) in the notch header. Needs Accessibility access, no Slack token
-- 🍃 **Zero Dependencies** — 100% native Swift & SwiftUI, ultra-low CPU and memory footprint. Nothing polls while the panel is closed
+- 🍃 **Zero Dependencies** — 100% native Swift & SwiftUI, ultra-low CPU and memory footprint. While the panel is closed, only the notch readout updates, every few seconds
 
 ---
 
@@ -71,7 +71,7 @@ mkdir -p build/cache BatFlow.app/Contents/MacOS BatFlow.app/Contents/Resources
 
 swiftc -module-cache-path build/cache \
   -framework IOKit -framework AppKit -framework SwiftUI -framework Charts \
-  -framework EventKit -framework Carbon \
+  -framework Carbon \
   -parse-as-library -O \
   -o BatFlow.app/Contents/MacOS/BatFlow \
   Sources/BatFlow/*.swift
@@ -91,8 +91,7 @@ open BatFlow.app
 | **Temperature** | `AppleSMC` — float keys `TB0T` / `TB1T` / `TB2T` averaged for precision |
 | **System Power** | SMC key `PSTR` for real-time CPU/board power draw |
 | **UI** | Borderless notch panel (AppKit) hosting SwiftUI + Swift Charts, zero third-party dependencies |
-| **Reminders** | EventKit, reading and writing your iCloud lists |
-| **Linear** | `linear api` GraphQL query through the Linear CLI |
+| **Apps** | `proc_pid_rusage` CPU time per process, grouped by enclosing `.app`, used to split system power |
 | **Slack** | Slack's Dock badge via the Dock's accessibility tree |
 | **Release CI** | GitHub Actions — builds and publishes `BatFlow-macOS.zip` on every push to `main` |
 
