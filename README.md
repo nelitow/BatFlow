@@ -41,7 +41,7 @@ Built with Swift, SwiftUI, and low-level IOKit & Apple SMC interfaces, BatFlow p
 - 🏝 **Notch Panel** — Point at the notch (or press ⌃⌥N) to drop down a panel with two cards: Power and Apps. On Macs without a notch it opens from the top centre of the menu bar. Settings live behind the gear in the panel
 - ⚡️ **Power** — Battery level, charge/drain ETA, and live watts for the adapter, system, battery and USB-C accessories, with a rolling power graph
 - 🌡 **Precision SMC Battery Temperature** — Reads Apple Silicon SMC keys (`TB0T`, `TB1T`, `TB2T`) for exact temperature in °C or °F
-- 🔋 **Notch Power Readout** — Live system wattage to the left of the notch, always visible (can be turned off in Settings)
+- 🔋 **Notch Power Readout** — Power in, system draw and battery % to the left of the notch, always visible (can be turned off in Settings)
 - 📊 **Power by App** — A rough estimate of each app's share of system power, from the CPU time its processes use. Helper processes count toward their app
 - 💬 **Slack Unreads** — Slack's Dock badge (mentions and DMs, or • for other unreads) in the notch header. Needs Accessibility access, no Slack token
 - 🍃 **Zero Dependencies** — 100% native Swift & SwiftUI, ultra-low CPU and memory footprint. While the panel is closed, only the notch readout updates, every few seconds

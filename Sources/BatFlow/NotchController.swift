@@ -93,7 +93,8 @@ final class HoverTrackingView: NSView {
 /// The always-on wattage readout. It widens the notch to the left, drawn in plain
 /// AppKit so that refreshing it every few seconds costs next to nothing.
 final class PowerPillView: NSView {
-    static let width: CGFloat = 64
+    /// Space between the pill's rounded left end and the text.
+    static let leadingPadding: CGFloat = 10
     /// How far the pill tucks under the hardware notch, so its flat bottom edge
     /// meets the notch's rounded corner without a gap.
     static let overlap: CGFloat = 12
@@ -113,23 +114,42 @@ final class PowerPillView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(watts: Double, charging: Bool) {
+    /// Power in (adapter, when plugged in), system draw and battery level.
+    /// Returns the pill width the new text needs.
+    func update(_ snap: PowerSnapshot) -> CGFloat {
         let text = NSMutableAttributedString()
-        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-        if let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-            let attachment = NSTextAttachment()
-            attachment.image = bolt
-            text.append(NSAttributedString(attachment: attachment))
-            text.append(NSAttributedString(string: " "))
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+
+        func append(symbol: String, _ value: String, color: NSColor) {
+            if text.length > 0 {
+                text.append(NSAttributedString(string: "  ", attributes: [.font: font]))
+            }
+            if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(symbolConfig.applying(.init(paletteColors: [color]))) {
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                text.append(NSAttributedString(attachment: attachment))
+                text.append(NSAttributedString(string: " ", attributes: [.font: font]))
+            }
+            text.append(NSAttributedString(string: value, attributes: [.font: font, .foregroundColor: color]))
         }
-        text.append(NSAttributedString(string: String(format: "%.1fW", watts)))
-        let color: NSColor = charging ? .systemGreen : .white
-        text.addAttributes([
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: color
-        ], range: NSRange(location: 0, length: text.length))
+
+        if snap.hasChargerConnected {
+            append(symbol: "powerplug.fill", String(format: "%.1fW", snap.chargerWattsActual), color: .systemGreen)
+        }
+        append(symbol: "bolt.fill", String(format: "%.1fW", snap.systemWatts), color: .white)
+        append(
+            symbol: BatteryGlyph.name(percent: snap.batteryPercent, charging: snap.isCharging),
+            "\(snap.batteryPercent)%",
+            color: snap.isCharging ? .systemGreen : .white
+        )
+
         label.attributedStringValue = text
-        toolTip = "System power draw"
+        toolTip = snap.hasChargerConnected
+            ? "Power in · System draw · Battery"
+            : "System draw · Battery"
+        return ceil(label.fittingSize.width) + Self.overlap + 2 + Self.leadingPadding
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -166,6 +186,7 @@ final class NotchController: NSObject, NSWindowDelegate {
     private var triggerWindow: NSWindow?
     private var pillWindow: NSWindow?
     private var pillView: PowerPillView?
+    private var pillWidth: CGFloat = 0
     private var panel: NotchPanel?
     private var hostingView: FirstMouseHostingView<NotchRootView>?
     private var hotKey: GlobalHotKey?
@@ -374,14 +395,8 @@ final class NotchController: NSObject, NSWindowDelegate {
         triggerWindow = trigger
         updateTriggerVisibility()
 
-        let pill = pillWindow ?? makePillWindow()
-        pill.setFrame(NSRect(
-            x: geometry.notchRect.minX - PowerPillView.width + PowerPillView.overlap,
-            y: geometry.notchRect.minY,
-            width: PowerPillView.width,
-            height: geometry.notchRect.height
-        ), display: true)
-        pillWindow = pill
+        pillWindow = pillWindow ?? makePillWindow()
+        pillWidth = 0
         updatePill()
     }
 
@@ -391,8 +406,18 @@ final class NotchController: NSObject, NSWindowDelegate {
         guard let pillWindow, let pillView else { return }
         let shouldShow = viewModel.showsNotchPower && (geometry?.hasNotch ?? false) && !viewModel.isNotchVisible
         if shouldShow {
-            let snap = viewModel.currentSnapshot
-            pillView.update(watts: snap.systemWatts, charging: snap.isCharging)
+            let width = pillView.update(viewModel.currentSnapshot)
+            // Resize only when the text grows or shrinks noticeably, so the pill
+            // doesn't jitter as digits change.
+            if let notch = geometry?.notchRect, abs(width - pillWidth) > 4 {
+                pillWidth = width
+                pillWindow.setFrame(NSRect(
+                    x: notch.minX - width + PowerPillView.overlap,
+                    y: notch.minY,
+                    width: width,
+                    height: notch.height
+                ), display: true)
+            }
             if !pillWindow.isVisible { pillWindow.orderFrontRegardless() }
         } else if pillWindow.isVisible {
             pillWindow.orderOut(nil)
